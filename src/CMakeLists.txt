@@ -15,5 +15,5 @@ add_executable(git-credential-kwallet
 target_link_libraries(git-credential-kwallet KF5::Wallet)
 
 install(TARGETS git-credential-kwallet
-  RUNTIME DESTINATION bin
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
