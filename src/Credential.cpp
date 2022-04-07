@@ -42,12 +42,14 @@ void printField(QTextStream& out, const Credential& cred) {
   }
 }
 
-QString composeKeyName(const Credential& credential) {
+QString composeKeyName(const Credential& credential, bool withUsername = true) {
   QString result;
   if (!credential.protocol.isEmpty()) {
     result += credential.protocol + "://";
   }
-  result += credential.username + '@';
+  if (withUsername && !credential.username.isEmpty()) {
+    result += credential.username + '@';
+  }
   if (!credential.host.isEmpty()) {
     result += credential.host + '/';
   }
@@ -85,10 +87,6 @@ void write(Credential&& cred) {
 using KWallet::Wallet;
 
 Credential get(Credential&& credential, WalletSettings settings) {
-  if (credential.username.isEmpty()) {
-    debugStream() << "no username specified";
-    return {};
-  }
   if (Wallet::folderDoesNotExist(settings.wallet, settings.folder)) {
     debugStream() << "no such folder";
     return {};
@@ -106,6 +104,27 @@ Credential get(Credential&& credential, WalletSettings settings) {
   if (!wallet->setFolder(settings.folder)) {
     debugStream() << "couldn't open folder";
     return {};
+  }
+  if (credential.username.isEmpty()) {
+    QMap<QString, QString> map;
+    if (wallet->readMap(keyName, map) != 0) {
+      debugStream() << "couldn't read map";
+      return {};
+    }
+    if (!map.contains(field_name<&Credential::username>)) {
+      debugStream() << "couldn't read username";
+      return {};
+    }
+    credential.username = std::move(map[field_name<&Credential::username>]);
+    if (credential.username.isEmpty()) {
+      debugStream() << "no username specified";
+      return {};
+    }
+    keyName = composeKeyName(credential);
+    if (Wallet::keyDoesNotExist(settings.wallet, settings.folder, keyName)) {
+      debugStream() << "credentials not found";
+      return {};
+    }
   }
   QString buffer;
   if (wallet->readPassword(keyName, buffer) != 0) {
@@ -132,21 +151,25 @@ void store(Credential&& credential, WalletSettings settings) {
     debugStream() << "couldn't open folder";
     return;
   }
-  auto keyName = composeKeyName(credential);
+  if (credential.username.isEmpty()) {
+    debugStream() << "no username specified";
+    return;
+  }
   if (credential.password.isEmpty()) {
     debugStream() << "no password specified";
     return;
   }
-  if (wallet->writePassword(keyName, credential.password) != 0) {
+  auto mapKeyName = composeKeyName(credential, false);
+  if (wallet->writeMap(mapKeyName, {{ field_name< &Credential::username >, credential.username}}) != 0) {
+    debugStream() << "couldn't write username";
+  }
+  auto passKeyName = composeKeyName(credential);
+  if (wallet->writePassword(passKeyName, credential.password) != 0) {
     debugStream() << "couldn't write password";
   }
 }
 
 void erase(Credential&& credential, WalletSettings settings) {
-  if (credential.username.isEmpty()) {
-    debugStream() << "no username specified";
-    return;
-  }
   if (Wallet::folderDoesNotExist(settings.wallet, settings.folder)) {
     debugStream() << "no such folder";
     return;
@@ -165,7 +188,33 @@ void erase(Credential&& credential, WalletSettings settings) {
     debugStream() << "couldn't open folder";
     return;
   }
+  if (credential.username.isEmpty()) {
+    QMap<QString, QString> map;
+    if (wallet->readMap(keyName, map) != 0) {
+      debugStream() << "couldn't read map";
+      return;
+    }
+    if (!map.contains(field_name<&Credential::username>)) {
+      debugStream() << "couldn't read username";
+      return;
+    }
+    credential.username = std::move(map[field_name<&Credential::username>]);
+    if (credential.username.isEmpty()) {
+      debugStream() << "no username specified";
+      return;
+    }
+    keyName = composeKeyName(credential);
+    if (Wallet::keyDoesNotExist(settings.wallet, settings.folder, keyName)) {
+      debugStream() << "credentials not found";
+      return;
+    }
+  }
+  auto mapKeyName = composeKeyName(credential, false);
+  if (wallet->removeEntry(mapKeyName) != 0) {
+    debugStream() << "couldn't delete username entry";
+  }
+  auto passKeyName = composeKeyName(credential);
   if (wallet->removeEntry(keyName) != 0) {
-    debugStream() << "couldn't delete entry";
+    debugStream() << "couldn't delete password entry";
   }
 }
